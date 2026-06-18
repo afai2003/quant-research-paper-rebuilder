@@ -1,0 +1,13 @@
+arxiv
+langchain-core
+langchain-openai
+langgraph
+nbformat
+pandas
+numpy
+scipy
+matplotlib
+statsmodels
+pypdf
+python-dotenv
+requests

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-research-paper-rebuilder"
+version = "0.1.0"
+description = "LangGraph multi-agent workflow for rebuilding quantitative finance papers as research notebooks."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Man Fai Chung" }]
+license = { text = "MIT" }
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+  "arxiv",
+  "langchain-core",
+  "langchain-openai",
+  "langgraph",
+  "nbformat",
+  "pandas",
+  "numpy",
+  "scipy",
+  "matplotlib",
+  "statsmodels",
+  "pypdf",
+  "python-dotenv",
+  "requests",
+]
+
+[project.scripts]
+quant-research-agent = "quant_research_agent.main:main"
+
+[tool.setuptools.packages.find]
+include = ["quant_research_agent*"]

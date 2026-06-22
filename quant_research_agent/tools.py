@@ -58,7 +58,7 @@ def quick_check_from_url(
     return str(pdf_path)
 
 
-def extract_text_from_pdf(pdf_path: str | Path, max_chars: int = 60_000) -> str:
+def extract_text_from_pdf(pdf_path: str | Path, max_chars: int = 250_000) -> str:
     """Extract text from a PDF with a max character cap."""
     reader = PdfReader(str(pdf_path))
     pages_text: list[str] = []
@@ -204,90 +204,6 @@ def search_papers(scope_query: dict[str, Any]) -> list[dict[str, Any]]:
 
     return fallback_seed_papers(scope_query)
 
-
-def find_free_data_sources(selected_paper: dict[str, Any]) -> list[dict[str, Any]]:
-    """Suggest free data sources based on selected paper keywords."""
-    title = selected_paper.get("title", "").lower()
-    sources: list[dict[str, Any]] = []
-
-    if any(keyword in title for keyword in ["momentum", "trend", "futures"]):
-        sources.extend(
-            [
-                {
-                    "name": "Yahoo Finance ETF proxy data",
-                    "type": "free",
-                    "url": "https://finance.yahoo.com/",
-                    "notes": "Useful for ETF proxy reproduction when continuous futures data is unavailable.",
-                    "downloadable_by_agent": False,
-                },
-                {
-                    "name": "Stooq daily price data",
-                    "type": "free",
-                    "url": "https://stooq.com/db/",
-                    "notes": "Free historical daily data for many assets. Coverage varies.",
-                    "downloadable_by_agent": False,
-                },
-            ]
-        )
-
-    if any(keyword in title for keyword in ["crypto", "bitcoin", "order book"]):
-        sources.extend(
-            [
-                {
-                    "name": "Binance public API",
-                    "type": "free",
-                    "url": "https://developers.binance.com/",
-                    "notes": "Free crypto OHLCV and some market data. Useful for crypto strategy reproduction.",
-                    "downloadable_by_agent": True,
-                },
-                {
-                    "name": "Kaggle crypto datasets",
-                    "type": "free",
-                    "url": "https://www.kaggle.com/datasets",
-                    "notes": "May require manual download and Kaggle login/API token.",
-                    "downloadable_by_agent": False,
-                },
-            ]
-        )
-
-    if not sources:
-        sources.extend(
-            [
-                {
-                    "name": "Yahoo Finance",
-                    "type": "free",
-                    "url": "https://finance.yahoo.com/",
-                    "notes": "Good for approximate daily price reproduction.",
-                    "downloadable_by_agent": False,
-                },
-                {
-                    "name": "FRED",
-                    "type": "free",
-                    "url": "https://fred.stlouisfed.org/",
-                    "notes": "Useful for macro factors and rates.",
-                    "downloadable_by_agent": False,
-                },
-            ]
-        )
-
-    return sources
-
-
-def paid_data_recommendations(selected_paper: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "name": "Nasdaq Data Link premium datasets",
-            "reason": "May provide continuous futures, fundamentals, or specialized market datasets.",
-        },
-        {
-            "name": "TickData / AlgoSeek / Polygon.io",
-            "reason": "Useful when tick, intraday, order book, or survivorship-bias-free data is required.",
-        },
-        {
-            "name": "Bloomberg / Refinitiv",
-            "reason": "Institutional source for broad asset coverage and reliable historical data.",
-        },
-    ]
 
 
 def get_arxiv_id_from_link(link: str) -> str:

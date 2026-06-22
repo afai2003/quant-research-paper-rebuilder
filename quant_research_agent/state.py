@@ -106,6 +106,42 @@ class QuantWorkflowState(TypedDict, total=False):
         "review_passed",
         "needs_revision",
         "error",
+        "paper_extracted",
+        "paper_graph_built",
+        "paper_graph_failed",
     ]
     error_message: str
     logs: Annotated[list[dict[str, Any]], operator.add]
+
+    paper_chunks: list[PaperChunkDict]
+    paper_graph: PaperGraphDict
+    paper_graph_path: str
+    paper_graph_context: str
+
+
+class PaperChunkDict(TypedDict, total=False):
+    chunk_id: str
+    page: int
+    text: str
+
+
+class PaperGraphNodeDict(TypedDict, total=False):
+    node_id: str
+    type: str
+    label: str
+    description: str
+    evidence: list[dict[str, Any]]
+
+
+class PaperGraphEdgeDict(TypedDict, total=False):
+    source: str
+    target: str
+    relation: str
+    evidence: list[dict[str, Any]]
+
+
+class PaperGraphDict(TypedDict, total=False):
+    nodes: list[PaperGraphNodeDict]
+    edges: list[PaperGraphEdgeDict]
+    implementation_steps: list[dict[str, Any]]
+    missing_or_unclear: list[str]

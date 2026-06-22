@@ -13,6 +13,8 @@ from .prompts import (
     ARXIV_QUERY_DECOMPOSER_PROMPT,
     BA_PROMPT,
     PAPER_READING_PROMPT,
+    PAPER_GRAPH_EXTRACTION_PROMPT,
+    PAPER_ANALYSIS_FROM_GRAPH_PROMPT,
     QR_PAPER_PROMPT,
     QUANT_RESEARCHER_WRITE_NOTEBOOK_PROMPT,
     REVIEWER_PROMPT,
@@ -20,10 +22,15 @@ from .prompts import (
 from .tools import (
     download_pdf_from_url,
     extract_text_from_pdf,
-    find_free_data_sources,
     get_arxiv_pdf_url,
-    paid_data_recommendations,
     search_papers,
+)
+
+from .paper_kg import (
+    graph_to_context,
+    merge_graph_fragments,
+    save_paper_graph,
+    split_paper_text,
 )
 
 
@@ -260,52 +267,24 @@ def read_paper_node(state: dict[str, Any]) -> dict[str, Any]:
                 "paper_selection_message": "PDF downloaded, but no text could be extracted.",
             }
 
-        fallback_analysis = {
-            "methodology": "",
-            "main_results": "",
-            "data_needed": "",
-            "variables_or_features_needed": [],
-            "models_or_methods": [],
-            "backtest_or_experiment_design": "",
-            "performance_metrics": [],
-            "rebuild_steps": [],
-            "rebuild_difficulty": "Medium",
-            "rebuild_chance": "Medium",
-            "limitations": "Fallback used because paper analysis failed.",
-            "notebook_plan": [],
-        }
-
-        paper_analysis = safe_json_from_llm(
-            PAPER_READING_PROMPT,
-            (
-                "Selected paper metadata:\n"
-                f"{json.dumps(selected_paper, ensure_ascii=False, indent=2, default=str)}\n\n"
-                "Extracted paper text:\n"
-                f"{paper_text}"
-            ),
-            fallback=fallback_analysis,
-        )
-
         output_data = {
             "selected_paper": selected_paper,
             "paper_pdf_url": str(pdf_url),
             "paper_pdf_path": str(pdf_path),
             "paper_text": paper_text,
-            "paper_analysis": paper_analysis,
-            "methodology": paper_analysis.get("methodology", ""),
-            "main_results": paper_analysis.get("main_results", ""),
-            "status": "paper_read",
+            "status": "paper_extracted",
         }
 
         output_dir = Path("outputs/paper_read")
         output_dir.mkdir(parents=True, exist_ok=True)
         paper_id = selected_paper.get("paper_id", "unknown_paper")
-        json_path = output_dir / f"{paper_id}.json"
+        json_path = output_dir / f"{paper_id}_extracted.json"
         json_path.write_text(
             json.dumps(output_data, ensure_ascii=False, indent=2, default=str),
             encoding="utf-8",
         )
         output_data["paper_json_path"] = str(json_path)
+
         return output_data
 
     except Exception as exc:
@@ -315,49 +294,6 @@ def read_paper_node(state: dict[str, Any]) -> dict[str, Any]:
             "paper_selection_message": f"Failed to download or read selected paper: {exc}",
         }
 
-
-def data_engineer_node(state: dict[str, Any]) -> dict[str, Any]:
-    selected_paper = state.get("selected_paper")
-    data_path = state.get("data_path")
-
-    if not selected_paper:
-        return {"data_ready": False, "data_issue": "No paper selected.", "status": "data_not_ready"}
-
-    free_sources = find_free_data_sources(selected_paper)
-    paid_sources = paid_data_recommendations(selected_paper)
-
-    if data_path:
-        return {
-            "data_sources": free_sources,
-            "paid_data_recommendations": [],
-            "data_ready": True,
-            "data_issue": None,
-            "status": "data_ready",
-        }
-
-    downloadable = [source for source in free_sources if source.get("downloadable_by_agent")]
-    if downloadable:
-        return {
-            "data_sources": free_sources,
-            "paid_data_recommendations": [],
-            "data_ready": False,
-            "data_issue": (
-                "Free downloadable data source exists, but this starter project does not automatically download it yet. "
-                "Please add the connector or provide the downloaded file path with --data-path."
-            ),
-            "status": "need_user_data_help",
-        }
-
-    return {
-        "data_sources": free_sources,
-        "paid_data_recommendations": paid_sources,
-        "data_ready": False,
-        "data_issue": (
-            "Suitable free data may require manual download, login, API key, or proxy data choice. "
-            "Please provide a data file path or discuss a simpler data plan with the BA."
-        ),
-        "status": "data_not_ready",
-    }
 
 
 def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -370,14 +306,25 @@ def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any
         raise ValueError("paper_analysis is missing. The paper must be read before writing the notebook.")
 
     paper_analysis_text = json.dumps(paper_analysis, indent=2, ensure_ascii=False, default=str)
+    paper_graph_context = state.get("paper_graph_context", "")
 
     if not review:
         user_content = f"""
-You are writing the initial notebook.
+                        You are writing the initial notebook.
 
-paper_analysis:
-{paper_analysis_text}
-"""
+                        paper_analysis:
+                        {paper_analysis_text}
+
+                        paper_graph_context:
+                        {paper_graph_context}
+
+                        Use the paper_graph_context as an implementation checklist.
+                        Every important Formula, Method, Variable, Parameter, and ImplementationStep node should either be:
+                        1. implemented in code, or
+                        2. explicitly listed as not implemented with a reason.
+
+                        Do not rely only on the summary. Follow the dependency order implied by the graph.
+                        """
     else:
         review_text = json.dumps(
             {
@@ -390,21 +337,25 @@ paper_analysis:
             default=str,
         )
         user_content = f"""
-You are revising an existing Jupyter-style notebook based on reviewer feedback.
+                            You are revising an existing Jupyter-style notebook based on reviewer feedback.
 
-paper_analysis:
-{paper_analysis_text}
+                            paper_analysis:
+                            {paper_analysis_text}
 
-previous_notebook_code:
-{notebook_text}
+                            paper_graph_context:
+                            {paper_graph_context}
 
-review_feedback:
-{review_text}
+                            previous_notebook_code:
+                            {notebook_text}
 
-Revise the notebook directly. Keep the # %% and # %% [markdown] format.
-Fix the concrete issues raised by the reviewer.
-Return the full revised notebook code only.
-"""
+                            review_feedback:
+                            {review_text}
+
+                            Revise the notebook directly. Keep the # %% and # %% [markdown] format.
+                            Fix the concrete issues raised by the reviewer.
+                            Use paper_graph_context as the implementation checklist.
+                            Return the full revised notebook code only.
+                            """
 
     text = safe_jupyter_code_from_llm(
         QUANT_RESEARCHER_WRITE_NOTEBOOK_PROMPT,
@@ -473,3 +424,146 @@ def reviewer_node(state: dict[str, Any]) -> dict[str, Any]:
         "review_comments": result.get("review_comments", ""),
         "status": "review_passed" if result.get("review_passed", False) else "needs_revision",
     }
+
+def build_paper_graph_node(state: dict[str, Any]) -> dict[str, Any]:
+    paper_text = state.get("paper_text", "")
+    selected_paper = state.get("selected_paper") or {}
+
+    if not paper_text.strip():
+        return {
+            "status": "paper_graph_failed",
+            "paper_selection_message": "No paper_text found. Cannot build paper graph.",
+        }
+
+    chunks = split_paper_text(paper_text)
+
+    if not chunks:
+        return {
+            "status": "paper_graph_failed",
+            "paper_selection_message": "Paper text could not be split into chunks.",
+        }
+
+    fragments: list[dict[str, Any]] = []
+
+    # Limit first version to avoid excessive LLM calls.
+    # You can increase this later.
+    max_chunks = min(len(chunks), 40)
+
+    for chunk in chunks[:max_chunks]:
+        fallback_fragment = {
+            "nodes": [],
+            "edges": [],
+            "implementation_steps": [],
+            "missing_or_unclear": [],
+        }
+
+        fragment = safe_json_from_llm(
+            PAPER_GRAPH_EXTRACTION_PROMPT,
+            json.dumps(
+                {
+                    "selected_paper": selected_paper,
+                    "chunk_id": chunk["chunk_id"],
+                    "page": chunk["page"],
+                    "text": chunk["text"],
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+            fallback=fallback_fragment,
+        )
+
+        fragment["chunk_id"] = chunk["chunk_id"]
+        fragment["page"] = chunk["page"]
+        fragments.append(fragment)
+
+    paper_graph = merge_graph_fragments(fragments)
+    paper_graph_context = graph_to_context(paper_graph)
+
+    paper_id = selected_paper.get("paper_id", "unknown_paper")
+    paper_graph_path = save_paper_graph(paper_graph, paper_id=paper_id)
+
+    return {
+        "paper_chunks": chunks,
+        "paper_graph": paper_graph,
+        "paper_graph_context": paper_graph_context,
+        "paper_graph_path": paper_graph_path,
+        "status": "paper_graph_built",
+    }
+
+def paper_analysis_from_graph_node(state: dict[str, Any]) -> dict[str, Any]:
+    selected_paper = state.get("selected_paper") or {}
+    paper_graph = state.get("paper_graph") or {}
+    paper_graph_context = state.get("paper_graph_context", "")
+    paper_chunks = state.get("paper_chunks") or []
+
+    if not paper_graph:
+        return {
+            "status": "paper_graph_failed",
+            "paper_selection_message": "No paper_graph found. Cannot create paper analysis.",
+        }
+
+    # Use a small evidence pack. Later you can replace this with graph retrieval.
+    evidence_chunks = [
+        {
+            "chunk_id": chunk.get("chunk_id"),
+            "page": chunk.get("page"),
+            "text": chunk.get("text", "")[:1500],
+        }
+        for chunk in paper_chunks[:12]
+    ]
+
+    fallback_analysis = {
+        "methodology": "",
+        "main_results": "",
+        "data_needed": "",
+        "variables_or_features_needed": [],
+        "models_or_methods": [],
+        "formulas_to_implement": [],
+        "parameters_to_match": [],
+        "backtest_or_experiment_design": "",
+        "performance_metrics": [],
+        "rebuild_steps": [],
+        "implementation_dependency_order": [],
+        "rebuild_difficulty": "Medium",
+        "rebuild_chance": "Medium",
+        "limitations": "Fallback used because graph-based paper analysis failed.",
+        "notebook_plan": [],
+        "graph_warnings": [],
+    }
+
+    paper_analysis = safe_json_from_llm(
+        PAPER_ANALYSIS_FROM_GRAPH_PROMPT,
+        json.dumps(
+            {
+                "selected_paper": selected_paper,
+                "paper_graph_context": paper_graph_context,
+                "evidence_chunks": evidence_chunks,
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        ),
+        fallback=fallback_analysis,
+    )
+
+    output_data = {
+        "selected_paper": selected_paper,
+        "paper_graph_path": state.get("paper_graph_path"),
+        "paper_analysis": paper_analysis,
+        "methodology": paper_analysis.get("methodology", ""),
+        "main_results": paper_analysis.get("main_results", ""),
+        "status": "paper_read",
+    }
+
+    output_dir = Path("outputs/paper_read")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paper_id = selected_paper.get("paper_id", "unknown_paper")
+    json_path = output_dir / f"{paper_id}_analysis_from_graph.json"
+    json_path.write_text(
+        json.dumps(output_data, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
+
+    output_data["paper_json_path"] = str(json_path)
+    return output_data

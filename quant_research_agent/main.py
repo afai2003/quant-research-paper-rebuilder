@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .agents import business_analyst_node, filter_paper_node
-from .graph import build_graph
+from quant_research_agent.agents import business_analyst_node, filter_paper_node
+from quant_research_agent.graph import build_graph
 
 
 def ask_yes_no(prompt: str) -> bool:
@@ -229,7 +229,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Quant Research Paper Rebuilding Agent workflow.")
     parser.add_argument("--query", required=True, help="User's quantitative research idea.")
     parser.add_argument("--selected-paper-id", default=None, help="Paper ID selected by the user, e.g. arxiv_1.")
-    parser.add_argument("--data-path", default=None, help="Path to user-provided data file. Reserved for future data connectors.")
     parser.add_argument("--save-state", default="notebooks/output/latest_state.json", help="Where to save workflow state.")
     parser.add_argument("--interactive", action="store_true", help="Run with human-in-the-loop approval and clarification.")
     args = parser.parse_args()

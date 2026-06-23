@@ -84,6 +84,10 @@ class QuantWorkflowState(TypedDict, total=False):
     notebook_path: str
     notebook_summary: str
     notebook_text: str
+    sandbox_passed: bool
+    sandbox_result: dict[str, Any]
+    execution_error: str
+    executed_notebook_path: str
 
     # Review loop
     review: ReviewDict
@@ -109,6 +113,8 @@ class QuantWorkflowState(TypedDict, total=False):
         "paper_extracted",
         "paper_graph_built",
         "paper_graph_failed",
+        "notebook_executed",
+        "notebook_execution_failed"
     ]
     error_message: str
     logs: Annotated[list[dict[str, Any]], operator.add]

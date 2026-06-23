@@ -154,55 +154,36 @@ def search_arxiv_qfin(
     return results
 
 
-def fallback_seed_papers(scope_query: dict[str, Any] | str) -> list[dict[str, Any]]:
-    """Fallback examples when online search fails.
-
-    These keep the demo runnable, but real research should use retrieved papers.
-    """
-    return [
-        {
-            "paper_id": "paper_1",
-            "title": "Time Series Momentum",
-            "link": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2089463",
-            "brief_summary": "Studies trend-following/time-series momentum across asset classes. Often reproducible using daily futures or ETF proxy data.",
-            "source": "SSRN / academic finance",
-        },
-        {
-            "paper_id": "paper_2",
-            "title": "Momentum Crashes",
-            "link": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2371227",
-            "brief_summary": "Studies momentum strategy risk and crash behavior. Reproduction may require equity universe data and careful portfolio construction.",
-            "source": "SSRN / academic finance",
-        },
-        {
-            "paper_id": "paper_3",
-            "title": "A Century of Evidence on Trend-Following Investing",
-            "link": "https://www.aqr.com/Insights/Research/Journal-Article/A-Century-of-Evidence-on-Trend-Following-Investing",
-            "brief_summary": "AQR paper on long-term trend-following across asset classes. Approximate reproduction possible with futures/ETF proxies.",
-            "source": "AQR Research",
-        },
-    ]
 
 
 def search_papers(scope_query: dict[str, Any]) -> list[dict[str, Any]]:
-    """Search papers and persist a debug copy under outputs/, never a local desktop path."""
+    """
+    Search papers and persist a debug copy under outputs/.
+
+    If arXiv search fails, stop the workflow instead of using fallback papers.
+    This avoids rebuilding an unrelated paper.
+    """
     try:
         papers = search_arxiv_qfin(scope_query)
-        if papers:
-            output_path = Path("outputs/paper_search/paper_check.json")
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(
-                json.dumps(papers, ensure_ascii=False, indent=2, default=str),
-                encoding="utf-8",
-            )
-            print(f"Saved {len(papers)} papers to {output_path}")
-            return papers
-    except Exception as exc:
-        print("Paper search failed; falling back to seed papers.")
-        print("Error type:", type(exc).__name__)
-        print("Error message:", str(exc))
 
-    return fallback_seed_papers(scope_query)
+        if not papers:
+            raise RuntimeError("No papers were found from arXiv for the generated queries.")
+
+        output_path = Path("outputs/paper_search/paper_check.json")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(papers, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+        print(f"Saved {len(papers)} papers to {output_path}")
+        return papers
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Paper search failed. Workflow stopped. "
+            f"Error type: {type(exc).__name__}. Error message: {exc}"
+        ) from exc
 
 
 

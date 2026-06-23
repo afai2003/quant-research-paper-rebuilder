@@ -7,6 +7,7 @@ from typing import Any
 
 from quant_research_agent.agents import business_analyst_node, filter_paper_node
 from quant_research_agent.graph import build_graph
+import sys
 
 
 def ask_yes_no(prompt: str) -> bool:
@@ -233,10 +234,17 @@ def main() -> None:
     parser.add_argument("--interactive", action="store_true", help="Run with human-in-the-loop approval and clarification.")
     args = parser.parse_args()
 
-    if args.interactive:
-        run_interactive(args)
-    else:
-        run_once(args)
+    try:
+        if args.interactive:
+            run_interactive(args)
+        else:
+            run_once(args)
+
+    except Exception as exc:
+        print("\nWorkflow stopped because an error occurred.")
+        print(f"Error type: {type(exc).__name__}")
+        print(f"Error message: {exc}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

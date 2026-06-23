@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from .agents import (
     build_paper_graph_node,
+    notebook_sandbox_node,
     paper_analysis_from_graph_node,
     quant_researcher_write_notebook_node,
     read_paper_node,
@@ -43,6 +44,18 @@ def route_after_reviewer(state: QuantWorkflowState) -> Literal["revise", "end"]:
         return "end"
     return "revise"
 
+def route_after_sandbox(state: QuantWorkflowState) -> Literal["review", "revise", "end"]:
+    sandbox_passed = state.get("sandbox_passed", False)
+    revision_count = state.get("revision_count", 0)
+
+    if sandbox_passed:
+        return "review"
+
+    if revision_count >= MAX_REVISIONS:
+        return "end"
+
+    return "revise"
+
 
 def build_graph():
     """Build the notebook generation graph.
@@ -63,6 +76,8 @@ def build_graph():
         monitor_node("quant_researcher_write_notebook", quant_researcher_write_notebook_node),
     )
     graph.add_node("reviewer", monitor_node("reviewer", reviewer_node))
+
+    graph.add_node("notebook_sandbox", monitor_node("notebook_sandbox", notebook_sandbox_node))
 
     graph.add_edge(START, "read_paper_node")
 
@@ -87,7 +102,17 @@ def build_graph():
     graph.add_conditional_edges(
         "quant_researcher_write_notebook",
         route_after_writer,
-        {"review": "reviewer", "end": END},
+        {"review": "notebook_sandbox", "end": END},
+    )
+
+    graph.add_conditional_edges(
+        "notebook_sandbox",
+        route_after_sandbox,
+        {
+            "review": "reviewer",
+            "revise": "quant_researcher_write_notebook",
+            "end": END,
+        },
     )
 
     graph.add_conditional_edges(

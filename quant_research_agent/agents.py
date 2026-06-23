@@ -33,6 +33,8 @@ from .paper_kg import (
     split_paper_text,
 )
 
+from .sandbox_executor import run_notebook_sandbox
+
 
 def strip_markdown_fence(text: str) -> str:
     text = text.strip()
@@ -298,6 +300,9 @@ def read_paper_node(state: dict[str, Any]) -> dict[str, Any]:
 
 def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any]:
     review = state.get("review")
+    review = state.get("review")
+    sandbox_result = state.get("sandbox_result")
+    sandbox_failed = bool(sandbox_result) and not sandbox_result.get("sandbox_passed", False)
     notebook_text = state.get("notebook_text")
     revision_count = int(state.get("revision_count", 0))
     paper_analysis = state.get("paper_analysis") or {}
@@ -308,7 +313,7 @@ def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any
     paper_analysis_text = json.dumps(paper_analysis, indent=2, ensure_ascii=False, default=str)
     paper_graph_context = state.get("paper_graph_context", "")
 
-    if not review:
+    if not review and not sandbox_failed:
         user_content = f"""
                         You are writing the initial notebook.
 
@@ -324,7 +329,42 @@ def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any
                         2. explicitly listed as not implemented with a reason.
 
                         Do not rely only on the summary. Follow the dependency order implied by the graph.
+                        Return the full notebook code only.
                         """
+
+    elif sandbox_failed:
+        sandbox_text = json.dumps(
+            sandbox_result,
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
+
+        user_content = f"""
+                        You are repairing an existing Jupyter-style notebook because it failed during sandbox execution.
+
+                        paper_analysis:
+                        {paper_analysis_text}
+
+                        paper_graph_context:
+                        {paper_graph_context}
+
+                        previous_notebook_code:
+                        {notebook_text}
+
+                        sandbox_execution_error:
+                        {sandbox_text}
+
+                        Your task:
+                        1. Fix the exact runtime error shown in sandbox_execution_error.
+                        2. Keep the # %% and # %% [markdown] format.
+                        3. Do not remove important research logic unless it directly caused the error.
+                        4. If real data loading or downloading fails, add a clearly marked synthetic-data fallback.
+                        5. Make sure the revised notebook can run from top to bottom.
+                        6. Keep all assumptions transparent in markdown cells.
+                        7. Return the full revised notebook code only.
+                        """
+
     else:
         review_text = json.dumps(
             {
@@ -336,26 +376,27 @@ def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any
             ensure_ascii=False,
             default=str,
         )
+
         user_content = f"""
-                            You are revising an existing Jupyter-style notebook based on reviewer feedback.
+                        You are revising an existing Jupyter-style notebook based on reviewer feedback.
 
-                            paper_analysis:
-                            {paper_analysis_text}
+                        paper_analysis:
+                        {paper_analysis_text}
 
-                            paper_graph_context:
-                            {paper_graph_context}
+                        paper_graph_context:
+                        {paper_graph_context}
 
-                            previous_notebook_code:
-                            {notebook_text}
+                        previous_notebook_code:
+                        {notebook_text}
 
-                            review_feedback:
-                            {review_text}
+                        review_feedback:
+                        {review_text}
 
-                            Revise the notebook directly. Keep the # %% and # %% [markdown] format.
-                            Fix the concrete issues raised by the reviewer.
-                            Use paper_graph_context as the implementation checklist.
-                            Return the full revised notebook code only.
-                            """
+                        Revise the notebook directly. Keep the # %% and # %% [markdown] format.
+                        Fix the concrete issues raised by the reviewer.
+                        Use paper_graph_context as the implementation checklist.
+                        Return the full revised notebook code only.
+                        """
 
     text = safe_jupyter_code_from_llm(
         QUANT_RESEARCHER_WRITE_NOTEBOOK_PROMPT,
@@ -371,11 +412,13 @@ def quant_researcher_write_notebook_node(state: dict[str, Any]) -> dict[str, Any
         output_path="notebooks/output/quant_research_notebook.ipynb",
     )
 
+    is_revision = bool(review or sandbox_failed)
+
     return {
         "notebook_path": notebook_path,
-        "notebook_summary": "Initial notebook drafted." if not review else "Notebook revised based on reviewer feedback.",
+        "notebook_summary": "Initial notebook drafted." if not is_revision else "Notebook revised.",
         "notebook_text": text,
-        "revision_count": revision_count + 1 if review else revision_count,
+        "revision_count": revision_count + 1 if is_revision else revision_count,
         "status": "notebook_drafted",
     }
 
@@ -567,3 +610,33 @@ def paper_analysis_from_graph_node(state: dict[str, Any]) -> dict[str, Any]:
 
     output_data["paper_json_path"] = str(json_path)
     return output_data
+
+def notebook_sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
+    notebook_path = state.get("notebook_path")
+
+    if not notebook_path:
+        return {
+            "sandbox_passed": False,
+            "sandbox_result": {
+                "error_type": "MissingNotebookPath",
+                "error_message": "notebook_path is missing from state.",
+            },
+            "status": "notebook_execution_failed",
+        }
+
+    result = run_notebook_sandbox(notebook_path)
+
+    if result.get("sandbox_passed"):
+        return {
+            "sandbox_passed": True,
+            "sandbox_result": result,
+            "executed_notebook_path": result.get("executed_notebook"),
+            "status": "notebook_executed",
+        }
+
+    return {
+        "sandbox_passed": False,
+        "sandbox_result": result,
+        "execution_error": result.get("error_message", ""),
+        "status": "notebook_execution_failed",
+    }
